@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Assistant</title>
+<style>
+	:root {
+		--ink: #1c1a17;
+		--paper: #f7f4ee;
+		--line: #d9d3c7;
+		--accent: #3a5a40;
+		--accent-soft: #e7ede6;
+		--mono: "IBM Plex Mono", ui-monospace, monospace;
+		--serif: "Source Serif Pro", Georgia, serif;
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		background: var(--paper);
+		color: var(--ink);
+		font-family: var(--serif);
+		height: 100vh;
+		display: flex;
+		flex-direction: column;
+	}
+	header {
+		padding: 1.25rem 1.5rem;
+		border-bottom: 1px solid var(--line);
+		display: flex;
+		align-items: baseline;
+		gap: 0.6rem;
+	}
+	header h1 {
+		font-size: 1.1rem;
+		font-weight: 600;
+		margin: 0;
+	}
+	header span {
+		font-family: var(--mono);
+		font-size: 0.75rem;
+		color: #7a7568;
+	}
+	main {
+		flex: 1;
+		overflow-y: auto;
+		padding: 1.5rem;
+		max-width: 640px;
+		width: 100%;
+		margin: 0 auto;
+	}
+	.msg {
+		margin-bottom: 1.1rem;
+		line-height: 1.5;
+		font-size: 0.98rem;
+	}
+	.msg .who {
+		font-family: var(--mono);
+		font-size: 0.7rem;
+		text-transform: lowercase;
+		color: #8a8474;
+		margin-bottom: 0.2rem;
+	}
+	.msg.user .bubble {
+		background: var(--accent-soft);
+		border-radius: 3px;
+		padding: 0.6rem 0.85rem;
+		display: inline-block;
+	}
+	.msg.assistant .bubble {
+		padding: 0.1rem 0;
+	}
+	form {
+		border-top: 1px solid var(--line);
+		padding: 1rem 1.5rem;
+		display: flex;
+		gap: 0.6rem;
+		max-width: 640px;
+		width: 100%;
+		margin: 0 auto;
+	}
+	input {
+		flex: 1;
+		border: 1px solid var(--line);
+		background: white;
+		padding: 0.65rem 0.8rem;
+		font-family: var(--serif);
+		font-size: 0.95rem;
+		border-radius: 3px;
+	}
+	input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+	button {
+		background: var(--accent);
+		color: white;
+		border: none;
+		padding: 0 1.1rem;
+		font-family: var(--mono);
+		font-size: 0.8rem;
+		border-radius: 3px;
+		cursor: pointer;
+	}
+	button:disabled { opacity: 0.5; cursor: default; }
+	.pending .who::after { content: " ..."; }
+</style>
+</head>
+<body>
+	<header>
+		<h1>Assistant</h1>
+		<span id="session-label"></span>
+	</header>
+	<main id="thread"></main>
+	<form id="composer">
+		<input id="input" type="text" placeholder="Ask something…" autocomplete="off" />
+		<button type="submit">Send</button>
+	</form>
+
+	<script>
+		// Point this at your deployed Worker URL after `wrangler deploy`.
+		const API_BASE = "http://localhost:8787";
+
+		// One persistent session id per browser, so memory survives reloads.
+		let sessionId = localStorage.getItem("sessionId");
+		if (!sessionId) {
+			sessionId = crypto.randomUUID();
+			localStorage.setItem("sessionId", sessionId);
+		}
+		document.getElementById("session-label").textContent =
+			"session " + sessionId.slice(0, 8);
+
+		const thread = document.getElementById("thread");
+		const form = document.getElementById("composer");
+		const input = document.getElementById("input");
+
+		function addMessage(role, content) {
+			const el = document.createElement("div");
+			el.className = "msg " + role;
+			el.innerHTML =
+				'<div class="who">' + (role === "user" ? "you" : "assistant") + '</div>' +
+				'<div class="bubble"></div>';
+			el.querySelector(".bubble").textContent = content;
+			thread.appendChild(el);
+			thread.scrollTop = thread.scrollHeight;
+			return el;
+		}
+
+		async function loadHistory() {
+			const res = await fetch(
+				API_BASE + "/api/history?sessionId=" + sessionId
+			);
+			const data = await res.json();
+			(data.history || []).forEach((m) => addMessage(m.role, m.content));
+		}
+
+		form.addEventListener("submit", async (e) => {
+			e.preventDefault();
+			const message = input.value.trim();
+			if (!message) return;
+
+			addMessage("user", message);
+			input.value = "";
+			input.disabled = true;
+
+			const pending = addMessage("assistant", "");
+			pending.classList.add("pending");
+			pending.querySelector(".bubble").textContent = "thinking";
+
+			try {
+				const res = await fetch(API_BASE + "/api/chat", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ sessionId, message }),
+				});
+				const data = await res.json();
+				pending.classList.remove("pending");
+				pending.querySelector(".bubble").textContent =
+					data.reply || "Something went wrong.";
+			} catch (err) {
+				pending.classList.remove("pending");
+				pending.querySelector(".bubble").textContent =
+					"Error reaching the assistant.";
+			} finally {
+				input.disabled = false;
+				input.focus();
+			}
+		});
+
+		loadHistory();
+	</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-ai-assistant",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Workers AI binding — lets the Worker/Durable Object call env.AI.run(...)
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Durable Object binding — one instance per conversation (memory + coordination)
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_SESSION",
+        "class_name": "ChatSession"
+      }
+    ]
+  },
+
+  // Required migration so the Durable Object uses SQLite storage
+  // (works on the free tier, unlike the legacy key-value storage backend)
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChatSession"]
+    }
+  ]
+}
